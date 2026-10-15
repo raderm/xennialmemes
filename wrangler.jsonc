@@ -3,12 +3,12 @@
   "name": "xennialmemes",
   "main": "src/worker.js",
   "compatibility_date": "2026-07-01",
-  "compatibility_flags": ["nodejs_compat"],
-
-  // `npx e9core setup` merges into this file: it fills in the D1
-  // database_id, E9_ACCOUNT_ID and E9_PLUGIN_ID, and keeps everything else.
-  // Run it instead of editing those values by hand.
-  "build": { "command": "npx e9core build-plugins" },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "build": {
+    "command": "npx e9core build-plugins"
+  },
   "alias": {
     "@engine9/core/plugins/site": "./engine9.plugins.js",
     "@engine9/input-tools": "@engine9/core/cloudflare/input-tools-shim",
@@ -18,57 +18,57 @@
     "better-sqlite3": "@engine9/core/cloudflare/unavailable-module",
     "i18n-iso-countries": "i18n-iso-countries/index.js"
   },
-
-  // One database for engine9's people tables and the site's xm_ tables.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "engine9",
-      "database_id": "",
+      "database_id": "2cb65c69-bcbc-46c0-8cad-3fb47c996396",
       "migrations_dir": "migrations"
     }
   ],
-
-  // Meme images and thumbnails. Create once: npx wrangler r2 bucket create xennialmemes-media
-  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "xennialmemes-media" }],
-
-  // Downscales big images before captioning and makes grid thumbnails.
-  // Optional: remove this block and the site still works with full-size images.
-  "images": { "binding": "IMAGES" },
-
-  // Static files in ./public (CSS, JS, icons). Everything else reaches the Worker.
-  "assets": { "directory": "./public", "binding": "ASSETS" },
-
-  // Check the Google Drive folder for new memes every 10 minutes, and tidy
-  // the tag vocabulary once a day (08:23 UTC). If you change the second one,
-  // change TAG_UPKEEP_CRON in src/worker.js to match.
-  "triggers": { "crons": ["*/10 * * * *", "23 8 * * *"] },
-
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "xennialmemes-media"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "triggers": {
+    "crons": [
+      "*/10 * * * *",
+      "23 8 * * *"
+    ]
+  },
   "vars": {
     "SITE_URL": "https://xennialmemes.com",
     "SITE_NAME": "Xennial Memes",
     "CLAUDE_MODEL": "claude-sonnet-5-5",
     "INGEST_BATCH": "5",
-    // Daily tag upkeep: merge duplicate tags automatically ("false" to only fix labels and categories),
-    // and write tag-page intros once a tag has this many memes.
     "TAG_AUTOMERGE": "true",
     "TAG_DESCRIBE_MIN": "3",
     "DELEGATE_URL": "https://delegate.engine9.ai",
-    // The Google Drive folder id: the last part of the folder's URL.
     "DRIVE_FOLDER_ID": "1I4fxWJ9zSvoX4I7EOIs_YEbCFXJVG3NT",
-    // Comma-separated emails that can delete any comment and hide posts.
-    "ADMIN_EMAILS": "rader.m@gmail.com"
+    "ADMIN_EMAILS": "rader.m@gmail.com",
+    "E9_ACCOUNT_ID": "my-site",
+    "E9_PLUGIN_ID": "6e1f8877-5327-5003-b805-c4b5265cedac"
   },
-
-  // Secrets (set with `npx wrangler secret put NAME`; locally they come from .env):
-  //   ANTHROPIC_API_KEY, GOOGLE_SERVICE_ACCOUNT_JSON
-  // and, copied by `npx e9core setup --remote`:
-  //   E9_PUBLIC_API_KEY, E9_ADMIN_API_KEY, SESSION_SECRET
-
   "routes": [
-    { "pattern": "xennialmemes.com", "custom_domain": true },
-    { "pattern": "www.xennialmemes.com", "custom_domain": true }
+    {
+      "pattern": "xennialmemes.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.xennialmemes.com",
+      "custom_domain": true
+    }
   ],
-
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true
+  }
 }
