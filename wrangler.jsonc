@@ -55,7 +55,7 @@
     "TAG_DESCRIBE_MIN": "3",
     "DELEGATE_URL": "https://delegate.engine9.ai",
     // The Google Drive folder id: the last part of the folder's URL.
-    "DRIVE_FOLDER_ID": "",
+    "DRIVE_FOLDER_ID": "1I4fxWJ9zSvoX4I7EOIs_YEbCFXJVG3NT",
     // Comma-separated emails that can delete any comment and hide posts.
     "ADMIN_EMAILS": ""
   },
