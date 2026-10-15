@@ -35,7 +35,7 @@ Browser ──► Worker ──► pages: /, /p/:slug, /tags, /tag/:tag, /favori
 | `src/lib/tags.js` | Tag categories, matching new tags to existing ones, tag queries |
 | `src/site/` | Page HTML (`render.js`), page routes, the member API |
 | `src/lib/db.js` | All SQL for the site's `xm_` tables |
-| `migrations/` | The site's tables (engine9's own tables come from `e9core setup`) |
+| `migrations-site/` | The site's tables, applied by `npm run db:migrate` (`scripts/migrate.js`). `migrations/` is engine9's, written by `e9core setup`; don't add files there |
 | `public/assets/` | CSS, browser JS, icons |
 | `test/` | `npm test`: ingest, pages, API, against an in-memory SQLite |
 

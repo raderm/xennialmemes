@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "npm run db:migrate && wrangler dev",
     "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:migrate": "node scripts/migrate.js --local",
+    "db:migrate:remote": "node scripts/migrate.js --remote",
     "ingest:local": "node scripts/ingest.js http://localhost:8787",
     "ingest:prod": "node scripts/ingest.js https://xennialmemes.com",
     "logs": "wrangler tail",
