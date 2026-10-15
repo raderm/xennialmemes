@@ -66,39 +66,37 @@ test('usefulHint ignores camera-style file names', () => {
   assert.equal(usefulHint({ name: 'tamagotchi-funeral.png', description: 'RIP' }), 'tamagotchi funeral — RIP');
 });
 
-test('captionImage sends the image and reads the forced tool call', async () => {
+test('captionImage sends the image and reads the structured JSON reply', async () => {
   let sent;
+  const reply = {
+    title: 'Be kind, rewind',
+    alt_text: 'A VHS tape with a sticker reading "Be kind, rewind".',
+    description: 'Video store rules.',
+    filename: 'be-kind-rewind-vhs-meme',
+    tags: [{ tag: 'vhs', label: 'VHS', category: 'tech' }]
+  };
   const fetchImpl = async (url, init) => {
     sent = { url, init, body: JSON.parse(init.body) };
-    return new Response(
-      JSON.stringify({
-        content: [
-          {
-            type: 'tool_use',
-            name: 'describe_meme',
-            input: {
-              title: 'Be kind, rewind',
-              alt_text: 'A VHS tape with a sticker reading "Be kind, rewind".',
-              description: 'Video store rules.',
-              filename: 'be-kind-rewind-vhs-meme',
-              tags: ['vhs', 'blockbuster']
-            }
-          }
-        ]
-      }),
-      { status: 200 }
-    );
+    return new Response(JSON.stringify({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(reply) }] }), { status: 200 });
   };
   const out = await captionImage({ bytes: fakePng(10, 10), mimeType: 'image/png', apiKey: 'k', fetchImpl, hint: 'vhs' });
   assert.equal(sent.url, 'https://api.anthropic.com/v1/messages');
   assert.equal(sent.init.headers['x-api-key'], 'k');
-  assert.equal(sent.body.tool_choice.name, 'describe_meme');
+  assert.equal(sent.body.tool_choice, undefined, 'no forced tool call');
+  assert.equal(sent.body.tools, undefined);
+  const schema = sent.body.output_config.format.schema;
+  assert.equal(sent.body.output_config.format.type, 'json_schema');
+  assert.equal(schema.additionalProperties, false);
+  assert.equal(schema.properties.tags.items.additionalProperties, false, 'nested objects are strict too');
   assert.equal(sent.body.messages[0].content[0].type, 'image');
   assert.equal(sent.body.model, 'claude-sonnet-5-5');
   assert.equal(out.filename, 'be-kind-rewind-vhs-meme');
+  assert.deepEqual(out.tags, [{ tag: 'vhs', label: 'VHS', category: 'tech' }]);
 
   const failing = async () => new Response(JSON.stringify({ error: { message: 'bad key' } }), { status: 401 });
   await assert.rejects(captionImage({ bytes: fakePng(1, 1), mimeType: 'image/png', apiKey: 'k', fetchImpl: failing }), /bad key/);
+  const refused = async () => new Response(JSON.stringify({ stop_reason: 'refusal', content: [] }));
+  await assert.rejects(captionImage({ bytes: fakePng(1, 1), mimeType: 'image/png', apiKey: 'k', fetchImpl: refused }), /declined/);
 });
 
 test('service account assertion is a valid RS256 JWT', async () => {

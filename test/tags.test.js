@@ -50,7 +50,7 @@ test('captionImage shows Claude the existing vocabulary', async () => {
   const fetchImpl = async (_url, init) => {
     body = JSON.parse(init.body);
     return new Response(
-      JSON.stringify({ content: [{ type: 'tool_use', name: 'describe_meme', input: { title: 't', alt_text: 'a', description: 'd', filename: 'f', tags: [] } }] })
+      JSON.stringify({ content: [{ type: 'text', text: JSON.stringify({ title: 't', alt_text: 'a', description: 'd', filename: 'f', tags: [] }) }] })
     );
   };
   await captionImage({
@@ -62,7 +62,7 @@ test('captionImage shows Claude the existing vocabulary', async () => {
   });
   const texts = body.messages[0].content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
   assert.match(texts, /pogs \| Pogs \| toys \| 4/);
-  assert.deepEqual(body.tools[0].input_schema.properties.tags.items.properties.category.enum.slice(0, 2), ['tv-movies', 'music']);
+  assert.deepEqual(body.output_config.format.schema.properties.tags.items.properties.category.enum.slice(0, 2), ['tv-movies', 'music']);
 });
 
 /* ---- ingest + vocabulary -------------------------------------------------- */

@@ -1,7 +1,7 @@
 /**
  * Ask Claude to look at one meme and return its title, alt text, SEO
- * description, file name and tags. The answer comes back through a forced
- * tool call, so it is always structured JSON.
+ * description, file name and tags. The answer comes back as structured
+ * output, JSON that matches the schema below.
  */
 import { bytesToBase64, normalizeTag, slugify } from '../lib/util.js';
 import { CATEGORIES, normalizeCategory } from '../lib/tags.js';
@@ -12,7 +12,7 @@ export { DEFAULT_MODEL };
 
 const TOOL = {
   name: 'describe_meme',
-  description: 'Record the accessible and search-friendly metadata for one meme image.',
+  description: 'JSON with the accessible and search-friendly metadata for this one meme image, following the schema field descriptions.',
   input_schema: {
     type: 'object',
     properties: {
@@ -54,7 +54,7 @@ const TOOL = {
   }
 };
 
-const SYSTEM = `You write metadata for xennialmemes.com, a site of memes for Xennials: people born roughly 1977-1983 who had an analog childhood and a digital adulthood. For each image you get, call describe_meme once.
+const SYSTEM = `You write metadata for xennialmemes.com, a site of memes for Xennials: people born roughly 1977-1983 who had an analog childhood and a digital adulthood. For each image you get, reply with its metadata as JSON.
 
 Alt text is for blind and low-vision readers: describe the picture plainly and transcribe all visible text word for word, in reading order. Never guess at people's identities unless the image itself names them; describe them instead. The title, description, file name and tags are for search engines: use the words people would actually search, name the specific cultural reference when there is one (a show, toy, game, technology, product), and keep them accurate to the image.
 

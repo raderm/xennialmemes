@@ -19,7 +19,7 @@ const DESCRIBE_BATCH = 25;
 
 const ORGANIZE_TOOL = {
   name: 'organize_tags',
-  description: 'Record cleanups for the tag vocabulary of a meme site.',
+  description: 'JSON listing cleanups for the tag vocabulary, following the schema field descriptions. Empty lists when nothing needs changing.',
   input_schema: {
     type: 'object',
     properties: {
@@ -53,7 +53,7 @@ const ORGANIZE_TOOL = {
 
 const DESCRIBE_TOOL = {
   name: 'describe_tags',
-  description: 'Record an intro sentence for each tag page.',
+  description: 'JSON with an intro for each tag page listed, following the schema field descriptions.',
   input_schema: {
     type: 'object',
     properties: {
