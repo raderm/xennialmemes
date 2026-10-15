@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createD1, createR2, fakePng, fakeVerify, request } from './helpers.js';
 import { handleSite } from '../src/site/routes.js';
-import { runIngest, usefulHint } from '../src/ingest/index.js';
+import { existingSeoName, runIngest, usefulHint } from '../src/ingest/index.js';
 import { normalizeCaption, captionImage } from '../src/ingest/caption.js';
 import { createAssertion, parseServiceAccount } from '../src/ingest/drive.js';
 import { imageSize, slugify, escapeHtml } from '../src/lib/util.js';
@@ -349,4 +349,43 @@ test('members: handle, favorites, comments, deletes, admin', async () => {
   const ingest = await call(e, '/api/site/admin/ingest', { method: 'POST', headers: { authorization: 'Bearer e9key_admin' } });
   assert.deepEqual(await ingest.json(), { ran: true });
   assert.equal((await call(e, '/api/site/admin/ingest', { method: 'POST', headers: { authorization: 'Bearer wrong' } })).status, 403);
+});
+
+/* ---- keeping SEO-friendly Drive names ------------------------------------- */
+
+test('existingSeoName keeps names already in URL form', () => {
+  assert.equal(existingSeoName('oregon-trail-dysentery-meme.jpg'), 'oregon-trail-dysentery-meme');
+  assert.equal(existingSeoName('Oregon_Trail_Dysentery.PNG'), 'oregon-trail-dysentery');
+  assert.equal(existingSeoName('saved-by-the-bell-zack-phone.webp'), 'saved-by-the-bell-zack-phone');
+  assert.equal(existingSeoName('y2k-bug-panic-1999.gif'), 'y2k-bug-panic-1999');
+  for (const name of [
+    'IMG_2034.jpg',
+    'Screenshot_2026-10-01-09-41.png',
+    'PXL_20261001_094122.jpg',
+    'Oregon Trail.jpg',
+    'meme.png',
+    'dial-up.png',
+    '2026-10-01-1234.png',
+    'cool!-meme-here.png',
+    'a-b-c-d.png',
+    `${'word-'.repeat(20)}end.jpg`
+  ]) {
+    assert.equal(existingSeoName(name), null, name);
+  }
+});
+
+test('ingest keeps an SEO-friendly Drive name and only suffixes on collision', async () => {
+  const e = env();
+  const drive = fakeDrive([
+    { id: 'a', name: 'tamagotchi-funeral-meme.png', mimeType: 'image/png' },
+    { id: 'b', name: 'IMG_0042.png', mimeType: 'image/png' },
+    { id: 'c', name: 'Tamagotchi_Funeral_Meme.png', mimeType: 'image/png' }
+  ]);
+  const r = await runIngest(e, { drive, caption: fakeCaption });
+  assert.deepEqual(r.created.map((c) => c.slug), [
+    'tamagotchi-funeral-meme',
+    'dial-up-modem-noise',
+    'tamagotchi-funeral-meme-2'
+  ]);
+  assert.ok(e.MEDIA.objects.has('tamagotchi-funeral-meme.png'));
 });

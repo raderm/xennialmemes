@@ -8,7 +8,8 @@
  *   3. for up to INGEST_BATCH new files: downloads, asks Claude for alt text,
  *      title, description, tags and an SEO file name, stores the image in R2
  *      as <seo-file-name>.<ext> (plus a WebP thumbnail when the Images
- *      binding is on), and inserts the post.
+ *      binding is on), and inserts the post. A Drive file whose name is
+ *      already SEO-friendly keeps it (see existingSeoName).
  */
 import { createDriveClient, getAccessToken, parseServiceAccount } from './drive.js';
 import { captionImage, DEFAULT_MODEL } from './caption.js';
@@ -34,6 +35,29 @@ export async function uniqueSlug(db, base) {
   let candidate = base;
   for (let n = 2; await slugExists(db, candidate); n++) candidate = `${base}-${n}`;
   return candidate;
+}
+
+const CAMERA_NAME = /^(img|image|dsc|dscn|pxl|mvimg|screenshot|screen[-_ ]shot|photo|untitled|download|file|scan)([\s_-]|\d|$)/i;
+
+/**
+ * The SEO file name already on a Drive file, or null if it doesn't have one.
+ *
+ * A name counts as SEO-friendly when it is already in URL form: words joined
+ * by hyphens (or underscores), no spaces or other punctuation, at least two
+ * words, real words rather than mostly numbers, and not a camera or
+ * screenshot name. "oregon-trail-dysentery-meme.jpg" and
+ * "Oregon_Trail_Dysentery.png" qualify (the second becomes
+ * "oregon-trail-dysentery"); "IMG_2034.jpg", "Oregon Trail.jpg" and
+ * "meme.png" do not, so Claude names those.
+ */
+export function existingSeoName(fileName) {
+  const stem = String(fileName || '').replace(/\.[a-z0-9]{2,5}$/i, '');
+  if (!/^[A-Za-z0-9]+([-_][A-Za-z0-9]+)+$/.test(stem)) return null;
+  if (stem.length > 80 || CAMERA_NAME.test(stem)) return null;
+  const words = stem.toLowerCase().split(/[-_]+/);
+  const wordy = words.filter((w) => /[a-z]{3,}/.test(w));
+  if (wordy.length < 2 || wordy.length < words.length / 2) return null;
+  return words.join('-');
 }
 
 /** A Drive name is worth passing to Claude only if a person wrote it. */
@@ -135,7 +159,9 @@ async function ingestOne(env, drive, file, caption, tagging) {
   await addTags(env.DB, newTags);
   tagging.vocab.push(...newTags.map((t) => ({ ...t, n: 0 })));
 
-  const slug = await uniqueSlug(env.DB, meta.filename);
+  // Keep a file name that is already SEO-friendly; otherwise use Claude's.
+  // Either way it gets -2, -3... if another meme already has that name.
+  const slug = await uniqueSlug(env.DB, existingSeoName(file.name) || meta.filename);
   const imageKey = `${slug}.${ext}`;
   const cacheControl = 'public, max-age=31536000, immutable';
   await env.MEDIA.put(imageKey, bytes, { httpMetadata: { contentType: mimeType, cacheControl } });
