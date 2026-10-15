@@ -57,7 +57,7 @@
     // The Google Drive folder id: the last part of the folder's URL.
     "DRIVE_FOLDER_ID": "1I4fxWJ9zSvoX4I7EOIs_YEbCFXJVG3NT",
     // Comma-separated emails that can delete any comment and hide posts.
-    "ADMIN_EMAILS": ""
+    "ADMIN_EMAILS": "rader.m@gmail.com"
   },
 
   // Secrets (set with `npx wrangler secret put NAME`; locally they come from .env):
