@@ -1,0 +1,32 @@
+{
+  "name": "xennialmemes",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "xennialmemes.com: a mosaic of memes fed from Google Drive, with Claude-written alt text and engine9 accounts.",
+  "scripts": {
+    "dev": "npm run db:migrate && wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "ingest:local": "node scripts/ingest.js http://localhost:8787",
+    "ingest:prod": "node scripts/ingest.js https://xennialmemes.com",
+    "logs": "wrangler tail",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@engine9/core": "^1.10.2",
+    "@engine9/schemas": "^1.10.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.107.0"
+  },
+  "engine9": {
+    "pluginPackages": [
+      "@engine9/schemas"
+    ]
+  }
+}
