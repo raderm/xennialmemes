@@ -39,14 +39,20 @@
   // Static files in ./public (CSS, JS, icons). Everything else reaches the Worker.
   "assets": { "directory": "./public", "binding": "ASSETS" },
 
-  // Check the Google Drive folder for new memes every 10 minutes.
-  "triggers": { "crons": ["*/10 * * * *"] },
+  // Check the Google Drive folder for new memes every 10 minutes, and tidy
+  // the tag vocabulary once a day (08:23 UTC). If you change the second one,
+  // change TAG_UPKEEP_CRON in src/worker.js to match.
+  "triggers": { "crons": ["*/10 * * * *", "23 8 * * *"] },
 
   "vars": {
     "SITE_URL": "https://xennialmemes.com",
     "SITE_NAME": "Xennial Memes",
     "CLAUDE_MODEL": "claude-sonnet-5-5",
     "INGEST_BATCH": "5",
+    // Daily tag upkeep: merge duplicate tags automatically ("false" to only fix labels and categories),
+    // and write tag-page intros once a tag has this many memes.
+    "TAG_AUTOMERGE": "true",
+    "TAG_DESCRIBE_MIN": "3",
     "DELEGATE_URL": "https://delegate.engine9.ai",
     // The Google Drive folder id: the last part of the folder's URL.
     "DRIVE_FOLDER_ID": "",

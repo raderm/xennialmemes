@@ -6,6 +6,7 @@ within ten minutes, it's on the site with:
 - **alt text** that describes the picture and transcribes its words, written by Claude
 - an **SEO file name** (`/i/oregon-trail-dysentery-meme.jpg`), title, meta description and topic tags
 - its own page (`/p/oregon-trail-dysentery-meme`) with Open Graph tags and `ImageObject` structured data, plus a sitemap and RSS feed
+- **topic tags drawn from a shared vocabulary**, so related memes find each other (see [Tags](#tags))
 
 Visitors log in with [engine9](https://github.com/engine9-ai/core) (delegate) to
 **favorite** memes and **comment**. Everything runs as one Cloudflare Worker with a
@@ -19,7 +20,9 @@ Google Drive folder ──(every 10 min)──► Worker cron ──► Claude A
                                               ├─► R2 (MEDIA): <seo-name>.jpg + thumbs/<seo-name>.webp
                                               └─► D1 (DB): xm_post, xm_post_tag
 
-Browser ──► Worker ──► pages: /, /p/:slug, /tag/:tag, /favorites, /sitemap.xml, /feed.xml
+Daily cron ──► tag upkeep ──► Claude API: merge duplicate tags, fix labels/categories, write tag intros
+
+Browser ──► Worker ──► pages: /, /p/:slug, /tags, /tag/:tag, /favorites, /sitemap.xml, /feed.xml
                   ├──► /i/*         images from R2
                   ├──► /api/site/*  favorites, comments, handles   (src/site/api.js)
                   └──► /api/*       engine9 core: login, people    (@engine9/core)
@@ -28,7 +31,8 @@ Browser ──► Worker ──► pages: /, /p/:slug, /tag/:tag, /favorites, /s
 | Path | What it is |
 | --- | --- |
 | `src/worker.js` | Entry point: routing, engine9 core, cron |
-| `src/ingest/` | Drive listing and download, Claude captioning, posting |
+| `src/ingest/` | Drive listing and download, Claude captioning, posting, daily tag upkeep |
+| `src/lib/tags.js` | Tag categories, matching new tags to existing ones, tag queries |
 | `src/site/` | Page HTML (`render.js`), page routes, the member API |
 | `src/lib/db.js` | All SQL for the site's `xm_` tables |
 | `migrations/` | The site's tables (engine9's own tables come from `e9core setup`) |
@@ -105,6 +109,64 @@ npm run deploy
    works and the Log in button won't complete.
 7. Submit `https://xennialmemes.com/sitemap.xml` in Google Search Console.
 
+## Tags
+
+Tags are how visitors browse, so the site keeps them as one tidy vocabulary
+instead of letting every meme invent its own words.
+
+**When a meme comes in,** Claude sees the existing tags (most used first) and is
+told to reuse them, adding a new tag only for a specific reference the list is
+missing: a show, toy, game, gadget or event. Each tag has a display label
+("Saved by the Bell") and one of eleven categories (TV & movies, Music, Games,
+Toys & collectibles, Tech & the internet, School days, Food & drink, Fashion &
+style, Home & family, Adulting, Everything else). Whatever Claude returns is
+then matched against the vocabulary in code: plural and spelling variants
+("tamagotchis", "1990s-cartoons", "the-simpsons"), one-letter typos, and retired
+slugs all land on the existing tag. Tags that would fit every meme here
+("meme", "nostalgia", a bare "90s") are dropped.
+
+**Once a day** (08:23 UTC) the upkeep job:
+
+1. drops tags no meme uses any more;
+2. if tags were added since its last pass, shows Claude the whole vocabulary
+   and applies what it finds: duplicates and synonyms are **merged** (the old
+   slug becomes an alias, so `/tag/old-slug` redirects permanently), and wrong
+   labels or categories are fixed;
+3. writes a one- or two-sentence intro for every tag with 3 or more memes
+   (`TAG_DESCRIBE_MIN`). It's the tag page's opening line and its meta
+   description.
+
+Set `TAG_AUTOMERGE` to `"false"` in `wrangler.jsonc` if you'd rather review
+merges yourself; labels, categories and intros still update.
+
+**On the site:**
+
+- **Topics** (`/tags`, linked in the masthead) lists every tag by category,
+  with bigger type for tags that have more memes, and a filter box.
+- **Tag pages** show the category, Claude's intro, the tags that most often
+  appear alongside this one, and the mosaic.
+- **Post pages** end with **More like this**: memes sharing the most tags,
+  with rare shared tags counting for more than common ones.
+- The home page's topic row shows the 16 busiest tags plus **All topics**.
+
+**Correcting tags by hand** (with `E9_ADMIN_API_KEY` from `.env`):
+
+```bash
+KEY=$(grep E9_ADMIN_API_KEY .env | cut -d= -f2)
+SITE=https://xennialmemes.com
+
+# Rename, recategorize, or rewrite a tag's intro. Hand edits stick: upkeep won't revisit them.
+curl -X POST $SITE/api/site/admin/tags/pogs -H "Authorization: Bearer $KEY" \
+  -H 'content-type: application/json' -d '{"label":"Pogs","category":"toys"}'
+
+# Fold one tag into another (the old URL redirects).
+curl -X POST $SITE/api/site/admin/tags/merge -H "Authorization: Bearer $KEY" \
+  -H 'content-type: application/json' -d '{"from":"milk-caps","to":"pogs"}'
+
+# Run the daily upkeep now.
+curl -X POST $SITE/api/site/admin/tags/upkeep -H "Authorization: Bearer $KEY"
+```
+
 ## Running it
 
 | You want to… | Do this |
@@ -114,6 +176,7 @@ npm run deploy
 | Take a meme down | Delete it from the Drive folder (it hides on the next run), or press **Hide from site** on its page while logged in as an admin |
 | Pull in new files now | `npm run ingest:prod` |
 | See what went wrong | `npm run logs`; files that fail are retried 3 times, and the reason is in the `xm_ingest_error` table |
+| Fix a tag | See [Correcting tags by hand](#tags) |
 | Change captioning model | `CLAUDE_MODEL` in `wrangler.jsonc` (`claude-haiku-5-5` is cheaper, `claude-sonnet-5-5` reads meme text better) |
 | Update engine9 | `npm install @engine9/core@latest @engine9/schemas@latest`, `npm run deploy`, `npx e9core upgrade --url https://xennialmemes.com` |
 

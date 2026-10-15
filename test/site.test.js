@@ -35,12 +35,27 @@ test('normalizeCaption cleans model output', () => {
     alt_text: 'x'.repeat(600),
     description: 'Pencil plus cassette.',
     filename: 'Pencil Rewind Cassette Tape.JPG',
-    tags: ['Mixtapes', 'mixtapes', '80s Music!', '', 'a', 'b', 'c', 'd']
+    tags: [
+      { tag: 'Mixtapes', label: 'Mixtapes', category: 'music' },
+      'mixtapes',
+      { tag: '80s Music!', label: '80s music', category: 'nope' },
+      'meme',
+      '90s',
+      '',
+      'a',
+      'b',
+      'c',
+      'd'
+    ]
   });
   assert.equal(c.title, 'Rewinding tapes');
   assert.ok(c.alt_text.length <= 420);
   assert.equal(c.filename, 'pencil-rewind-cassette-tape-jpg');
-  assert.deepEqual(c.tags.slice(0, 2), ['mixtapes', '80s-music']);
+  assert.deepEqual(c.tags.slice(0, 2), [
+    { tag: 'mixtapes', label: 'Mixtapes', category: 'music' },
+    { tag: '80s-music', label: '80s music', category: 'other' }
+  ]);
+  assert.ok(!c.tags.some((t) => ['meme', '90s'].includes(t.tag)), 'tags that fit every post are dropped');
   assert.ok(c.tags.length <= 6);
 });
 
@@ -133,7 +148,10 @@ const fakeCaption = async ({ hint }) =>
     alt_text: `Alt for ${hint}`,
     description: 'desc',
     filename: 'dial-up-modem-noise',
-    tags: ['internet', '90s']
+    tags: [
+      { tag: 'dial-up-internet', label: 'Dial-up internet', category: 'tech' },
+      { tag: 'aol', label: 'AOL', category: 'tech' }
+    ]
   });
 
 function env(extra = {}) {
@@ -156,7 +174,8 @@ test('ingest creates posts with unique SEO file names and skips known files', as
   const post = e.DB.raw.prepare("SELECT * FROM xm_post WHERE drive_file_id = 'a'").get();
   assert.equal(post.width, 1000);
   assert.equal(post.alt_text, 'Alt for dial up');
-  assert.deepEqual(JSON.parse(post.tags), ['internet', '90s']);
+  assert.deepEqual(JSON.parse(post.tags), ['dial-up-internet', 'aol']);
+  assert.equal(e.DB.raw.prepare("SELECT label FROM xm_tag WHERE tag='aol'").get().label, 'AOL');
   assert.equal(e.DB.raw.prepare('SELECT COUNT(*) AS n FROM xm_post_tag').get().n, 4);
 
   const second = await runIngest(e, { drive, caption: fakeCaption });
@@ -222,7 +241,8 @@ test('home page renders the mosaic with alt text, SEO tags and pagination', asyn
   assert.match(html, /<link rel="canonical" href="https:\/\/xennialmemes.com\/">/);
   assert.match(html, /"publicKey":"e9publickey_test"/);
   assert.match(html, /data-load-more/);
-  assert.match(html, /href="\/tag\/internet"/);
+  assert.match(html, /href="\/tag\/dial-up-internet">Dial-up internet<\/a>/);
+  assert.match(html, /href="\/tags">All topics/);
 
   const feed = await (await call(e, '/api/site/posts?before=6')).json();
   assert.equal(feed.count, 5);
@@ -244,14 +264,14 @@ test('post page has meta tags, JSON-LD, and escapes user text', async () => {
 test('sitemap, robots, feed, images, tag pages, www redirect', async () => {
   const e = await seeded();
   const sitemap = await (await call(e, '/sitemap.xml')).text();
-  assert.equal((sitemap.match(/<url>/g) || []).length, 1 + 2 + 35);
+  assert.equal((sitemap.match(/<url>/g) || []).length, 1 + 1 + 2 + 35);
   assert.match(sitemap, /<image:loc>https:\/\/xennialmemes.com\/i\/dial-up-modem-noise/);
   assert.match(await (await call(e, '/robots.txt')).text(), /Sitemap: https:\/\/xennialmemes.com\/sitemap.xml/);
   assert.match(await (await call(e, '/feed.xml')).text(), /<rss version="2.0">/);
   const img = await call(e, '/i/dial-up-modem-noise.png');
   assert.equal(img.status, 200);
   assert.equal(img.headers.get('content-type'), 'image/png');
-  assert.equal((await call(e, '/tag/internet')).status, 200);
+  assert.equal((await call(e, '/tag/aol')).status, 200);
   assert.equal((await call(e, '/tag/nothing-here')).status, 404);
   const www = await handleSite(new Request('https://www.xennialmemes.com/p/x?y=1'), e, deps);
   assert.equal(www.status, 301);

@@ -4,9 +4,11 @@
  * tool call, so it is always structured JSON.
  */
 import { bytesToBase64, normalizeTag, slugify } from '../lib/util.js';
+import { CATEGORIES, normalizeCategory } from '../lib/tags.js';
 
-const API_URL = 'https://api.anthropic.com/v1/messages';
-export const DEFAULT_MODEL = 'claude-sonnet-5-5';
+import { callTool, DEFAULT_MODEL } from './claude.js';
+
+export { DEFAULT_MODEL };
 
 const TOOL = {
   name: 'describe_meme',
@@ -35,8 +37,17 @@ const TOOL = {
       },
       tags: {
         type: 'array',
-        items: { type: 'string' },
-        description: '3-6 lowercase topic tags (e.g. "90s tv", "dial-up internet", "mixtapes").'
+        description:
+          '3-6 topic tags, most specific first. Reuse a tag from the existing list whenever one fits, copying its slug exactly. Only add a new tag for a specific reference (a show, toy, game, product, event) or a theme the list is missing.',
+        items: {
+          type: 'object',
+          properties: {
+            tag: { type: 'string', description: 'Slug: lowercase words joined by hyphens, e.g. "saved-by-the-bell".' },
+            label: { type: 'string', description: 'Display name with natural capitalization, e.g. "Saved by the Bell".' },
+            category: { type: 'string', enum: CATEGORIES.map((c) => c.id) }
+          },
+          required: ['tag', 'label', 'category']
+        }
       }
     },
     required: ['title', 'alt_text', 'description', 'filename', 'tags']
@@ -45,7 +56,19 @@ const TOOL = {
 
 const SYSTEM = `You write metadata for xennialmemes.com, a site of memes for Xennials: people born roughly 1977-1983 who had an analog childhood and a digital adulthood. For each image you get, call describe_meme once.
 
-Alt text is for blind and low-vision readers: describe the picture plainly and transcribe all visible text word for word, in reading order. Never guess at people's identities unless the image itself names them; describe them instead. The title, description, file name and tags are for search engines: use the words people would actually search, name the specific cultural reference when there is one (a show, toy, game, technology, product), and keep them accurate to the image.`;
+Alt text is for blind and low-vision readers: describe the picture plainly and transcribe all visible text word for word, in reading order. Never guess at people's identities unless the image itself names them; describe them instead. The title, description, file name and tags are for search engines: use the words people would actually search, name the specific cultural reference when there is one (a show, toy, game, technology, product), and keep them accurate to the image.
+
+Tags are how visitors browse the site, so they must be consistent. Prefer one specific tag (the exact show, toy, game or gadget) plus one or two broader themes over many near-synonyms. Never use "meme", "funny", "xennial", "nostalgia" or a bare decade by itself as a tag: every meme here is all of those. Categories: ${CATEGORIES.map((c) => `${c.id} (${c.label})`).join(', ')}.`;
+
+/** Tags that would apply to every post, so they help nobody browse. */
+const BANNED_TAGS = new Set(['meme', 'memes', 'funny', 'humor', 'xennial', 'xennials', 'nostalgia', 'retro', '80s', '90s', '1980s', '1990s']);
+
+/** The existing vocabulary, as Claude sees it: "slug | Label | category | posts". */
+export function vocabularyPrompt(vocab, limit = 300) {
+  if (!vocab?.length) return '';
+  const lines = vocab.slice(0, limit).map((t) => `${t.tag} | ${t.label} | ${t.category} | ${t.n ?? 0}`);
+  return `Existing tags (slug | label | category | posts), most used first:\n${lines.join('\n')}`;
+}
 
 function clip(text, max) {
   const value = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -60,7 +83,18 @@ export function normalizeCaption(input, { fallbackName = 'meme' } = {}) {
   const altText = clip(input?.alt_text, 420) || title;
   const description = clip(input?.description, 200);
   const filename = slugify(input?.filename) || slugify(title) || slugify(fallbackName) || 'xennial-meme';
-  const tags = [...new Set((Array.isArray(input?.tags) ? input.tags : []).map(normalizeTag).filter(Boolean))].slice(0, 6);
+  const tags = [];
+  for (const raw of Array.isArray(input?.tags) ? input.tags : []) {
+    const item = typeof raw === 'string' ? { tag: raw } : raw || {};
+    const tag = normalizeTag(item.tag || item.label);
+    if (!tag || BANNED_TAGS.has(tag) || tags.some((t) => t.tag === tag)) continue;
+    tags.push({
+      tag,
+      label: clip(item.label, 60) || tag.replace(/-/g, ' '),
+      category: normalizeCategory(item.category)
+    });
+    if (tags.length >= 6) break;
+  }
   return { title, alt_text: altText, description, filename, tags };
 }
 
@@ -69,9 +103,9 @@ export function normalizeCaption(input, { fallbackName = 'meme' } = {}) {
  * @param {Uint8Array} args.bytes   image to describe (JPEG, PNG, GIF or WebP, under ~7 MB)
  * @param {string} args.mimeType
  * @param {string} [args.hint]      the uploader's own note (Drive file name / description)
+ * @param {Array}  [args.vocab]     existing tags, so Claude reuses them instead of inventing synonyms
  */
-export async function captionImage({ bytes, mimeType, hint, apiKey, model = DEFAULT_MODEL, fetchImpl = fetch }) {
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
+export async function captionImage({ bytes, mimeType, hint, vocab = [], apiKey, model = DEFAULT_MODEL, fetchImpl = fetch }) {
   const content = [
     { type: 'image', source: { type: 'base64', media_type: mimeType, data: bytesToBase64(bytes) } },
     {
@@ -81,27 +115,8 @@ export async function captionImage({ bytes, mimeType, hint, apiKey, model = DEFA
         : 'Describe this meme.'
     }
   ];
-  const res = await fetchImpl(API_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: SYSTEM,
-      tools: [TOOL],
-      tool_choice: { type: 'tool', name: TOOL.name },
-      messages: [{ role: 'user', content }]
-    })
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Claude API error (${res.status}): ${body.error?.message || 'unknown error'}`);
-  }
-  const call = (body.content || []).find((block) => block.type === 'tool_use' && block.name === TOOL.name);
-  if (!call) throw new Error('Claude did not return describe_meme output');
-  return normalizeCaption(call.input, { fallbackName: hint });
+  const vocabText = vocabularyPrompt(vocab);
+  if (vocabText) content.push({ type: 'text', text: vocabText });
+  const input = await callTool({ apiKey, model, system: SYSTEM, content, tool: TOOL, fetchImpl });
+  return normalizeCaption(input, { fallbackName: hint });
 }

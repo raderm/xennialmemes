@@ -21,6 +21,7 @@ import {
   slugExists,
   syncDriveRemovals
 } from '../lib/db.js';
+import { addTags, aliasMap, createMatcher, resolveTags, vocabulary } from '../lib/tags.js';
 
 const MAX_ATTEMPTS = 3;
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024; // Images binding input limit
@@ -77,11 +78,14 @@ export async function runIngest(env, { limit, drive: driveOverride, caption = ca
   );
   const batch = fresh.slice(0, Number(limit ?? env.INGEST_BATCH ?? 5));
 
+  // The tag vocabulary is shared with Claude and grows as this run adds tags.
+  const tagging = batch.length ? { vocab: await vocabulary(db), aliases: await aliasMap(db) } : null;
+
   const created = [];
   const failed = [];
   for (const file of batch) {
     try {
-      const post = await ingestOne(env, drive, file, caption);
+      const post = await ingestOne(env, drive, file, caption, tagging);
       if (post) created.push(post);
     } catch (err) {
       const message = err?.message || String(err);
@@ -93,7 +97,7 @@ export async function runIngest(env, { limit, drive: driveOverride, caption = ca
   return { listed: files.length, created, failed, removed, pending: fresh.length - batch.length };
 }
 
-async function ingestOne(env, drive, file, caption) {
+async function ingestOne(env, drive, file, caption, tagging) {
   if (Number(file.size) > MAX_SOURCE_BYTES) throw new Error(`file is larger than ${MAX_SOURCE_BYTES / 1048576} MB`);
   const bytes = await drive.download(file.id);
   const size = imageSize(bytes) || {};
@@ -120,9 +124,16 @@ async function ingestOne(env, drive, file, caption) {
     bytes: captionBytes,
     mimeType: captionMime,
     hint: usefulHint(file),
+    vocab: tagging.vocab,
     apiKey: env.ANTHROPIC_API_KEY,
     model: env.CLAUDE_MODEL || DEFAULT_MODEL
   });
+
+  // Map Claude's tags onto the vocabulary: exact slugs, retired aliases and
+  // spelling variants all land on the existing tag; only genuinely new ones are added.
+  const { tags, created: newTags } = resolveTags(meta.tags, createMatcher(tagging.vocab, tagging.aliases));
+  await addTags(env.DB, newTags);
+  tagging.vocab.push(...newTags.map((t) => ({ ...t, n: 0 })));
 
   const slug = await uniqueSlug(env.DB, meta.filename);
   const imageKey = `${slug}.${ext}`;
@@ -145,7 +156,7 @@ async function ingestOne(env, drive, file, caption) {
     title: meta.title,
     alt_text: meta.alt_text,
     description: meta.description,
-    tags: meta.tags,
+    tags,
     image_key: imageKey,
     thumb_key: thumbKey,
     mime_type: mimeType,
@@ -160,5 +171,5 @@ async function ingestOne(env, drive, file, caption) {
     await env.MEDIA.delete(thumbKey ? [imageKey, thumbKey] : [imageKey]);
     return null;
   }
-  return { slug, title: meta.title };
+  return { slug, title: meta.title, tags };
 }

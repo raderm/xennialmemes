@@ -22,7 +22,7 @@ const STOP_WORDS = new Set(['a', 'an', 'the', 'of', 'and', 'or', 'to', 'in', 'on
  * SEO file-name stem: lowercase ASCII words joined by hyphens, filler words
  * dropped, at most `maxWords` words and 60 characters.
  */
-export function slugify(text, { maxWords = 8, maxLength = 60 } = {}) {
+export function slugify(text, { maxWords = 8, maxLength = 60, keepStopWords = false } = {}) {
   const words = String(text ?? '')
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
@@ -30,7 +30,7 @@ export function slugify(text, { maxWords = 8, maxLength = 60 } = {}) {
     .replace(/['’]/g, '')
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-  const meaningful = words.filter((w) => !STOP_WORDS.has(w));
+  const meaningful = keepStopWords ? words : words.filter((w) => !STOP_WORDS.has(w));
   const chosen = (meaningful.length >= 2 ? meaningful : words).slice(0, maxWords);
   let slug = '';
   for (const word of chosen) {
@@ -41,8 +41,9 @@ export function slugify(text, { maxWords = 8, maxLength = 60 } = {}) {
   return slug;
 }
 
+/** Tag slugs keep every word, so "Saved by the Bell" stays "saved-by-the-bell". */
 export function normalizeTag(tag) {
-  return slugify(tag, { maxWords: 4, maxLength: 30 });
+  return slugify(tag, { maxWords: 6, maxLength: 40, keepStopWords: true });
 }
 
 export const EXTENSION_FOR_MIME = {

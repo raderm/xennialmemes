@@ -3,6 +3,7 @@
  * tests can run them against a plain SQLite database.
  */
 import * as data from '../lib/db.js';
+import * as tagsDb from '../lib/tags.js';
 import { handleSiteApi } from './api.js';
 import {
   favoritesPage,
@@ -12,7 +13,8 @@ import {
   robotsTxt,
   rssXml,
   sitemapXml,
-  tagPage
+  tagPage,
+  tagsIndexPage
 } from './render.js';
 
 const HTML = { 'content-type': 'text/html; charset=utf-8' };
@@ -63,31 +65,50 @@ export async function handleSite(request, env, deps) {
 
   if (path === '/') {
     const before = url.searchParams.get('before');
-    const [{ posts, next }, tags] = await Promise.all([data.listPosts(db, { before }), data.topTags(db, 24)]);
+    const [{ posts, next }, tags] = await Promise.all([data.listPosts(db, { before }), tagsDb.usedTags(db, { limit: 16 })]);
     return html(homePage(env, { posts, next, tags, before }));
+  }
+
+  if (path === '/tags' || path === '/tags/') {
+    return html(tagsIndexPage(env, { tags: await tagsDb.usedTags(db) }));
   }
 
   const tagMatch = path.match(/^\/tag\/([^/]+)\/?$/);
   if (tagMatch) {
     const tag = decodeURIComponent(tagMatch[1]).toLowerCase();
+    // A tag that was merged into another redirects there for good.
+    const target = await tagsDb.resolveAlias(db, tag);
+    if (target) {
+      url.pathname = `/tag/${encodeURIComponent(target)}`;
+      return Response.redirect(url.toString(), 301);
+    }
     const before = url.searchParams.get('before');
-    const [{ posts, next }, tags] = await Promise.all([data.listPosts(db, { tag, before }), data.topTags(db, 24)]);
+    const [{ posts, next }, info, related] = await Promise.all([
+      data.listPosts(db, { tag, before }),
+      tagsDb.getTag(db, tag),
+      tagsDb.relatedTags(db, tag)
+    ]);
     if (!posts.length && !before) return html(notFoundPage(env), 404);
-    return html(tagPage(env, { tag, posts, next, tags, before }));
+    return html(tagPage(env, { tag, info, posts, next, related, before }));
   }
 
   const postMatch = path.match(/^\/p\/([a-z0-9-]+)\/?$/);
   if (postMatch) {
     const post = await data.getPostBySlug(db, postMatch[1]);
     if (!post) return html(notFoundPage(env), 404);
-    const [comments, near] = await Promise.all([data.listComments(db, post.id), data.neighbours(db, post.id)]);
-    return html(postPage(env, { post, comments, neighbours: near }));
+    const [comments, near, tags, related] = await Promise.all([
+      data.listComments(db, post.id),
+      data.neighbours(db, post.id),
+      tagsDb.tagDetails(db, post.tags),
+      tagsDb.relatedPosts(db, post.id)
+    ]);
+    return html(postPage(env, { post, tags, comments, neighbours: near, related }));
   }
 
   if (path === '/favorites') return html(favoritesPage(env), 200, 'no-store');
 
   if (path === '/sitemap.xml') {
-    const [rows, tags] = await Promise.all([data.allSlugs(db), data.topTags(db, 500)]);
+    const [rows, tags] = await Promise.all([data.allSlugs(db), tagsDb.usedTags(db, { limit: 5000 })]);
     return new Response(sitemapXml(env, rows, tags), {
       headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=600' }
     });

@@ -75,17 +75,6 @@ export async function allSlugs(db) {
   return results;
 }
 
-export async function topTags(db, limit = 40) {
-  const { results } = await db
-    .prepare(
-      `SELECT t.tag, COUNT(*) AS n FROM xm_post_tag t JOIN xm_post p ON p.id = t.post_id
-        WHERE p.status = 'published' GROUP BY t.tag ORDER BY n DESC, t.tag LIMIT ?`
-    )
-    .bind(limit)
-    .all();
-  return results;
-}
-
 export async function slugExists(db, slug) {
   return !!(await db.prepare('SELECT 1 AS x FROM xm_post WHERE slug = ?').bind(slug).first());
 }

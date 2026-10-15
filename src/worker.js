@@ -7,7 +7,8 @@
     /api/*         engine9 core: people, login (/api/auth/*), health (/api/ok)
     everything else  server-rendered pages (src/site/routes.js)
 
-  The cron trigger in wrangler.jsonc runs the Google Drive ingest.
+  Cron triggers in wrangler.jsonc run the Google Drive ingest (every 10
+  minutes) and the tag upkeep job (daily).
 
   The engine9 part follows @engine9/core's cloudflare/worker.js: same
   PersonWorker, key store and createApi config. `npx e9core setup` fills in
@@ -24,8 +25,12 @@ import { createApi } from '@engine9/core/api';
 import { PersonIdentifierDO } from '@engine9/core/id';
 import { handleSite, notFound } from './site/routes.js';
 import { runIngest } from './ingest/index.js';
+import { runTagUpkeep } from './ingest/tagUpkeep.js';
 
 export { PersonIdentifierDO };
+
+/** Must match the second entry in wrangler.jsonc triggers.crons. */
+const TAG_UPKEEP_CRON = '23 8 * * *';
 
 const plugins = pluginEntries
   ? createPluginRegistry(pluginEntries, { packageVersions: packageVersions || {} })
@@ -57,7 +62,8 @@ function engine9Api(env, ctx) {
 function deps(env) {
   return {
     verifySession: (token) => (env.SESSION_SECRET ? verifySessionToken(token, { secret: env.SESSION_SECRET }) : null),
-    runIngest
+    runIngest,
+    runTagUpkeep
   };
 }
 
@@ -74,10 +80,12 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
+    // Two crons (wrangler.jsonc): Drive ingest every 10 minutes, tag upkeep once a day.
+    const job = controller.cron === TAG_UPKEEP_CRON ? ['tag upkeep', runTagUpkeep] : ['ingest', runIngest];
     ctx.waitUntil(
-      runIngest(env).then(
-        (summary) => console.log('ingest', JSON.stringify(summary)),
-        (err) => console.error('ingest failed', err?.message || err)
+      job[1](env).then(
+        (summary) => console.log(job[0], JSON.stringify(summary)),
+        (err) => console.error(`${job[0]} failed`, err?.message || err)
       )
     );
   }

@@ -1,5 +1,6 @@
 /** Server-rendered HTML for every page. Plain template strings; no framework. */
 import { escapeHtml as e } from '../lib/util.js';
+import { CATEGORIES, categoryLabel } from '../lib/tags.js';
 
 export function siteConfig(env) {
   return {
@@ -80,6 +81,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(
   <div class="masthead-row">
     <a class="wordmark" href="/" aria-label="${e(site.name)} home">${e(site.name)}</a>
     <nav class="nav" aria-label="Site">
+      <a href="/tags">Topics</a>
       <a href="/favorites" class="nav-favs" hidden>Your favorites</a>
       <span data-e9-login-widget></span>
     </nav>
@@ -99,17 +101,22 @@ ${body}
 </html>`;
 }
 
-/** Tags are stored as slugs ("90s-tech"); show them with spaces. */
+/** Fallback label for a bare slug ("dial-up-internet" -> "dial-up internet" stays readable enough). */
 export const tagLabel = (tag) => String(tag).replace(/-/g, ' ');
 
-function tagLinks(tags, current) {
-  if (!tags.length) return '';
-  return `<nav class="tags" aria-label="Browse by topic">${tags
-    .map((t) => {
-      const tag = typeof t === 'string' ? t : t.tag;
-      return `<a href="/tag/${encodeURIComponent(tag)}"${tag === current ? ' aria-current="page"' : ''}>${e(tagLabel(tag))}</a>`;
-    })
-    .join('')}</nav>`;
+const tagHref = (tag) => `/tag/${encodeURIComponent(tag)}`;
+
+/** A row of tag pills. `tags` are {tag, label} rows or bare slugs. */
+function tagLinks(tags, { current, label = 'Browse by topic', lead = '', allTopics = false } = {}) {
+  if (!tags.length && !allTopics) return '';
+  const links = tags.map((t) => {
+    const tag = typeof t === 'string' ? t : t.tag;
+    const text = typeof t === 'string' ? tagLabel(t) : t.label || tagLabel(t.tag);
+    return `<a href="${tagHref(tag)}"${tag === current ? ' aria-current="page"' : ''}>${e(text)}</a>`;
+  });
+  if (allTopics) links.push('<a class="tags-all" href="/tags">All topics</a>');
+  const leadHtml = lead ? `<span class="tags-lead" aria-hidden="true">${e(lead)}</span>` : '';
+  return `<nav class="tags" aria-label="${e(label)}">${leadHtml}${links.join('')}</nav>`;
 }
 
 function mosaic({ posts, next, tag, emptyText }) {
@@ -126,7 +133,7 @@ ${next ? `<p class="more"><a class="button" href="?before=${next}" data-load-mor
 export function homePage(env, { posts, next, tags, before }) {
   const site = siteConfig(env);
   const body = `<h1 class="visually-hidden">${e(site.name)}</h1>
-${tagLinks(tags)}
+${tagLinks(tags, { allTopics: true })}
 ${mosaic({ posts, next, emptyText: 'No memes yet. Drop an image into the Google Drive folder and it will show up here within ten minutes.' })}`;
   return layout(env, {
     path: before ? `/?before=${before}` : '/',
@@ -143,16 +150,82 @@ ${mosaic({ posts, next, emptyText: 'No memes yet. Drop an image into the Google 
   });
 }
 
-export function tagPage(env, { tag, posts, next, tags, before }) {
-  const body = `<h1 class="page-title">${e(tagLabel(tag))} memes</h1>
-${tagLinks(tags, tag)}
-${mosaic({ posts, next, tag, emptyText: `Nothing tagged “${tagLabel(tag)}” yet.` })}`;
+export function tagPage(env, { tag, info, posts, next, related, before }) {
+  const site = siteConfig(env);
+  const label = info?.label || tagLabel(tag);
+  const category = info?.category || 'other';
+  const description = info?.description || `Xennial memes about ${label}.`;
+  const body = `<header class="tag-head">
+  <p class="crumbs"><a href="/tags">Topics</a> <span aria-hidden="true">/</span> <a href="/tags#${e(category)}">${e(categoryLabel(category))}</a></p>
+  <h1 class="page-title">${e(label)}</h1>
+  ${info?.description ? `<p class="tag-intro">${e(info.description)}</p>` : ''}
+</header>
+${related.length ? tagLinks(related, { label: `Often tagged with ${label}`, lead: 'Often tagged with' }) : ''}
+${mosaic({ posts, next, tag, emptyText: `Nothing tagged “${label}” yet.` })}`;
   return layout(env, {
-    title: `${tagLabel(tag)} memes`,
-    description: `Xennial memes about ${tagLabel(tag)}.`,
-    path: `/tag/${encodeURIComponent(tag)}${before ? `?before=${before}` : ''}`,
+    title: `${label} memes`,
+    description,
+    path: `${tagHref(tag)}${before ? `?before=${before}` : ''}`,
     noindex: !!before,
     page: 'tag',
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: `${label} memes`,
+      description,
+      url: `${site.url}${tagHref(tag)}`,
+      isPartOf: { '@type': 'WebSite', name: site.name, url: `${site.url}/` }
+    },
+    body
+  });
+}
+
+/** Font step for a tag on the topics page, from how many memes use it. */
+function weight(n, max) {
+  if (n >= 3 && n >= max * 0.6) return 'w3';
+  if (n >= 2 && n >= max * 0.3) return 'w2';
+  return 'w1';
+}
+
+export function tagsIndexPage(env, { tags }) {
+  const max = tags.reduce((m, t) => Math.max(m, t.n), 0);
+  const groups = CATEGORIES.map((c) => ({ ...c, tags: tags.filter((t) => t.category === c.id) })).filter((g) => g.tags.length);
+  const body = `<header class="tag-head">
+  <h1 class="page-title">Topics</h1>
+  <p class="tag-intro">Every tag on the site, grouped by subject. Bigger names have more memes.</p>
+  <div class="topic-filter">
+    <label for="topic-filter">Find a topic</label>
+    <input id="topic-filter" type="search" placeholder="Oregon Trail, mixtapes, AOL…" autocomplete="off" data-topic-filter>
+    <p class="form-msg" role="status" data-topic-count></p>
+  </div>
+</header>
+${
+  groups.length
+    ? `<div class="topics">
+${groups
+  .map(
+    (g) => `<section class="topic-group" id="${e(g.id)}" aria-labelledby="h-${e(g.id)}">
+  <h2 id="h-${e(g.id)}">${e(g.label)} <span class="count">${g.tags.length}</span></h2>
+  <ul class="topic-list">
+    ${g.tags
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .map(
+        (t) =>
+          `<li class="${weight(t.n, max)}" data-topic="${e(`${t.label} ${t.tag}`.toLowerCase())}"><a href="${tagHref(t.tag)}">${e(t.label)}</a> <span class="n">${t.n}</span></li>`
+      )
+      .join('\n    ')}
+  </ul>
+</section>`
+  )
+  .join('\n')}
+</div>`
+    : '<p class="empty">Topics appear here as memes come in.</p>'
+}`;
+  return layout(env, {
+    title: 'Topics',
+    description: 'Browse Xennial memes by topic: TV, music, toys, games, tech and more.',
+    path: '/tags',
+    page: 'tags',
     body
   });
 }
@@ -162,7 +235,7 @@ function formatDate(iso) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 }
 
-export function postPage(env, { post, comments, neighbours: near }) {
+export function postPage(env, { post, tags = post.tags, comments, neighbours: near, related = [] }) {
   const site = siteConfig(env);
   const url = `${site.url}/p/${post.slug}`;
   const body = `<article class="post" data-post-id="${post.id}">
@@ -182,7 +255,7 @@ export function postPage(env, { post, comments, neighbours: near }) {
       <button type="button" class="button-quiet" data-share>Copy link</button>
       <button type="button" class="button-quiet admin-only" data-hide-post hidden>Hide from site</button>
     </div>
-    ${tagLinks(post.tags)}
+    ${tagLinks(tags, { label: 'Topics in this meme' })}
     <details class="alt-text">
       <summary>Image description</summary>
       <p>${e(post.alt_text)}</p>
@@ -208,6 +281,16 @@ export function postPage(env, { post, comments, neighbours: near }) {
     </nav>
   </div>
 </article>
+${
+  related.length
+    ? `<section class="related" aria-labelledby="related-h">
+  <h2 id="related-h">More like this</h2>
+  <div class="mosaic">
+${related.map(postCard).join('\n')}
+  </div>
+</section>`
+    : ''
+}
 <dialog class="handle-dialog" data-handle-dialog>
   <form method="dialog" data-handle-form>
     <h2>Pick a handle</h2>
@@ -277,6 +360,7 @@ export function sitemapXml(env, rows, tags) {
   const site = siteConfig(env);
   const urls = [
     `<url><loc>${site.url}/</loc><changefreq>hourly</changefreq></url>`,
+    `<url><loc>${site.url}/tags</loc><changefreq>daily</changefreq></url>`,
     ...tags.map((t) => `<url><loc>${site.url}/tag/${xml(encodeURIComponent(t.tag))}</loc></url>`),
     ...rows.map(
       (r) =>

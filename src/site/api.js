@@ -9,6 +9,7 @@
  * routes are not exposed to cross-site request forgery.
  */
 import * as data from '../lib/db.js';
+import * as tags from '../lib/tags.js';
 import { json, safeEqual } from '../lib/util.js';
 import { postCard } from './render.js';
 
@@ -51,7 +52,7 @@ async function readJson(request) {
 /**
  * @param {Request} request
  * @param {object} env  Worker env (DB, ADMIN_EMAILS, E9_ADMIN_API_KEY, ...)
- * @param {object} deps { verifySession(token) -> session|null, runIngest(env) -> summary }
+ * @param {object} deps { verifySession(token) -> session|null, runIngest(env) -> summary, runTagUpkeep(env) -> summary }
  * @returns {Promise<Response|null>} null when the path is not a site route
  */
 export async function handleSiteApi(request, env, deps) {
@@ -178,6 +179,45 @@ export async function handleSiteApi(request, env, deps) {
     } catch (err) {
       return json(500, { error: err?.message || String(err) });
     }
+  }
+
+  /* ---- tag admin ---- */
+  const tagAdmin = path.startsWith('/admin/tags');
+  if (tagAdmin && method === 'POST' && !isAdmin && !hasAdminKey(request, env)) {
+    return json(403, { error: 'Admins only.' });
+  }
+
+  // POST /api/site/admin/tags/upkeep — run the daily merge/categorize/describe job now.
+  if (method === 'POST' && path === '/admin/tags/upkeep') {
+    try {
+      return json(200, await deps.runTagUpkeep(env));
+    } catch (err) {
+      return json(500, { error: err?.message || String(err) });
+    }
+  }
+
+  // POST /api/site/admin/tags/merge { from, to } — fold one tag into another by hand.
+  if (method === 'POST' && path === '/admin/tags/merge') {
+    const { from, to } = await readJson(request);
+    if (!(await tags.getTag(db, from)) || !(await tags.getTag(db, to)) || from === to) {
+      return json(400, { error: 'from and to must be two different existing tags' });
+    }
+    const posts = await tags.mergeTag(db, from, to, 'admin');
+    return json(200, { from, to, posts });
+  }
+
+  // POST /api/site/admin/tags/<tag> { label?, category?, description? } — correct a tag.
+  const tagMatch = path.match(/^\/admin\/tags\/([a-z0-9-]+)$/);
+  if (method === 'POST' && tagMatch) {
+    const tag = tagMatch[1];
+    if (!(await tags.getTag(db, tag))) return json(404, { error: 'No such tag.' });
+    const input = await readJson(request);
+    if (input.category && !tags.CATEGORY_IDS.includes(input.category)) {
+      return json(400, { error: `category must be one of ${tags.CATEGORY_IDS.join(', ')}` });
+    }
+    // Hand edits are marked reviewed so the upkeep job leaves them alone.
+    await tags.updateTag(db, tag, { label: input.label, category: input.category, description: input.description, reviewed: true });
+    return json(200, await tags.getTag(db, tag));
   }
 
   return json(404, { error: 'Not found' });

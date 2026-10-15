@@ -124,6 +124,28 @@
 
   const mosaicEl = $('.mosaic[data-feed]');
   if (mosaicEl) infiniteScroll(mosaicEl, createMosaic(mosaicEl));
+  // Other server-rendered grids (More like this) get the same balanced layout.
+  $$('.mosaic:not([data-feed]):not([data-favorites-grid])').forEach((el) => el.children.length && createMosaic(el));
+
+  /* ---- Topics filter ---------------------------------------------------- */
+
+  const filter = $('[data-topic-filter]');
+  if (filter) {
+    const items = $$('[data-topic]');
+    const groups = $$('.topic-group');
+    const count = $('[data-topic-count]');
+    filter.addEventListener('input', () => {
+      const q = filter.value.trim().toLowerCase();
+      let shown = 0;
+      items.forEach((li) => {
+        const hit = !q || li.dataset.topic.includes(q);
+        li.hidden = !hit;
+        if (hit) shown++;
+      });
+      groups.forEach((g) => (g.hidden = !g.querySelector('[data-topic]:not([hidden])')));
+      count.textContent = q ? (shown ? `${shown} topic${shown === 1 ? '' : 's'}` : 'No topics match. Try a shorter word.') : '';
+    });
+  }
 
   /* ---- Accounts ----------------------------------------------------------
      @engine9/id logs the visitor in with delegate; engine9 core's
