@@ -13,6 +13,10 @@
   Uses the package's ready-made browser bundle (dist/id.iife.js) when it is
   there; otherwise bundles the package with esbuild, which wrangler already
   installs.
+
+  If the library can't be found this prints a warning and exits 0, so a
+  missing login library never blocks `npm install` or a deploy; the site
+  works without it, just with no Log in button.
 */
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -23,10 +27,13 @@ const pkgDir = path.join(root, 'node_modules', '@engine9', 'id');
 const outDir = path.join(root, 'public', 'assets', 'vendor');
 const out = path.join(outDir, 'engine9-id.js');
 
-if (!existsSync(pkgDir)) {
-  console.error('@engine9/id is not installed. Run `npm install` in the project folder, then try again.');
-  process.exit(1);
+function skip(reason) {
+  console.warn(`WARNING: engine9 login library not copied: ${reason}`);
+  console.warn('The site still works; the Log in button stays hidden until this is fixed.');
+  process.exit(0);
 }
+
+if (!existsSync(pkgDir)) skip('@engine9/id is not installed (run `npm install` and check it succeeds).');
 mkdirSync(outDir, { recursive: true });
 
 const ready = path.join(pkgDir, 'dist', 'id.iife.js');
@@ -47,12 +54,11 @@ for (const from of [root, path.join(root, 'node_modules', 'wrangler')]) {
     // try the next place
   }
 }
-if (!esbuild) {
-  console.error('Could not find esbuild (normally installed with wrangler). Run `npm install` and try again.');
-  process.exit(1);
-}
+if (!esbuild) skip('esbuild was not found (it is normally installed with wrangler; run `npm install`).');
 
-const result = await esbuild.build({
+let result;
+try {
+  result = await esbuild.build({
   stdin: {
     contents: "import * as engine9Id from '@engine9/id'; window.engine9Id = engine9Id;",
     resolveDir: root,
@@ -65,6 +71,9 @@ const result = await esbuild.build({
   minify: true,
   write: false,
   logLevel: 'silent'
-});
+  });
+} catch (err) {
+  skip(`bundling @engine9/id failed: ${err.message.split('\n')[0]}`);
+}
 writeFileSync(out, result.outputFiles[0].contents);
 console.log('engine9 login library: bundled @engine9/id into public/assets/vendor/engine9-id.js');
