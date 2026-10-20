@@ -238,7 +238,7 @@ test('home page renders the mosaic with alt text, SEO tags and pagination', asyn
   assert.match(html, /alt="Alt for meme 34"/);
   assert.match(html, /<link rel="canonical" href="https:\/\/xennialmemes.com\/">/);
   assert.match(html, /"publicKey":"e9publickey_test"/);
-  assert.match(html, /<script src="\/assets\/vendor\/engine9-id.js" defer><\/script>/, 'login library served from the site');
+  assert.match(html, /<script type="module" src="\/assets\/vendor\/engine9-id\/iife.js"><\/script>/, 'login library served from the site');
   assert.doesNotMatch(html, /unpkg\.com/);
   assert.match(html, /data-load-more/);
   assert.match(html, /href="\/tag\/dial-up-internet">Dial-up internet<\/a>/);

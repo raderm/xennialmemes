@@ -36,7 +36,7 @@ Browser ──► Worker ──► pages: /, /p/:slug, /tags, /tag/:tag, /favori
 | `src/site/` | Page HTML (`render.js`), page routes, the member API |
 | `src/lib/db.js` | All SQL for the site's `xm_` tables |
 | `migrations-site/` | The site's tables, applied by `npm run db:migrate` (`scripts/migrate.js`). `migrations/` is engine9's, written by `e9core setup`; don't add files there |
-| `public/assets/` | CSS, browser JS, icons. `public/assets/vendor/engine9-id.js` (the login library) is copied from `@engine9/id` by `scripts/vendor-id.js` on install, dev and deploy; it isn't committed |
+| `public/assets/` | CSS, browser JS, icons. `vendor/engine9-id/` is engine9's login library (`@engine9/id`, MIT), built from its GitHub source by `npm run build:id -- <clone>` because it isn't on npm |
 | `test/` | `npm test`: ingest, pages, API, against an in-memory SQLite |
 
 ## One-time setup

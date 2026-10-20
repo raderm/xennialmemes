@@ -95,7 +95,7 @@ ${body}
   <p>${e(site.name)}. New memes land here as soon as they're added. <a href="/feed.xml">RSS feed</a></p>
 </footer>
 <script>window.XM = ${JSON.stringify({ publicKey: site.publicKey, siteName: site.name }).replace(/</g, '\\u003c')};</script>
-<script src="/assets/vendor/engine9-id.js" defer></script>
+<script type="module" src="/assets/vendor/engine9-id/iife.js"></script>
 <script src="/assets/site.js" defer></script>
 </body>
 </html>`;
