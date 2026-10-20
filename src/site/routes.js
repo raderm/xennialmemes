@@ -25,14 +25,21 @@ function html(body, status = 200, cache = PAGE_CACHE) {
   return new Response(body, { status, headers: { ...HTML, 'cache-control': cache } });
 }
 
+// Browsers may keep an image this long. Short enough that a meme removed
+// from Drive or hidden by an admin drops out of caches within a day.
+const IMAGE_CACHE = 'public, max-age=86400';
+
 async function serveImage(env, key, request) {
   if (!key || key.includes('..')) return null;
+  // Only images of published posts are served: a meme removed from Drive or
+  // hidden by an admin is unreachable even by its direct image address.
+  if (!(await data.imageIsPublished(env.DB, key))) return null;
   const object = await env.MEDIA.get(key, { onlyIf: request.headers, range: request.headers });
   if (!object) return null;
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);
-  if (!headers.has('cache-control')) headers.set('cache-control', 'public, max-age=31536000, immutable');
+  headers.set('cache-control', IMAGE_CACHE);
   headers.set('x-content-type-options', 'nosniff');
   // R2 returns an object without a body when the conditional request matched.
   if (!('body' in object) || !object.body) return new Response(null, { status: 304, headers });

@@ -174,7 +174,7 @@ curl -X POST $SITE/api/site/admin/tags/upkeep -H "Authorization: Bearer $KEY"
 | Add a meme | Put the image in the Drive folder. JPEG, PNG, GIF and WebP; up to 20 MB |
 | Choose the file name yourself | Name the file in URL form before uploading, e.g. `oregon-trail-dysentery-meme.jpg` (lowercase words joined by hyphens; underscores and capitals are fine too). That name is kept as-is instead of the one Claude writes. Names with spaces, camera names and one-word names get Claude's. If the name is already taken, `-2` is added |
 | Give Claude context | Name the file meaningfully (`tamagotchi-funeral.png`) or fill in the Drive file's description. Camera names like `IMG_2034` are ignored |
-| Take a meme down | Delete it from the Drive folder (it hides on the next run), or press **Hide from site** on its page while logged in as an admin |
+| Take a meme down | Delete it from the Drive folder (it hides on the next run), or press **Hide from site** on its page while logged in as an admin. Its page and its image address both stop working; comments and favorites are kept, so putting the file back restores it |
 | Pull in new files now | `npm run ingest:prod` |
 | See what went wrong | `npm run logs`; files that fail are retried 3 times, and the reason is in the `xm_ingest_error` table |
 | Fix a tag | See [Correcting tags by hand](#tags) |

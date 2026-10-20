@@ -408,3 +408,42 @@ test('parseServiceAccount forgives common paste slips and explains real problems
   assert.throws(() => parseServiceAccount(b64.slice(0, 101)), /cut off/);
   assert.throws(() => parseServiceAccount(Buffer.from('{"a":1}').toString('base64')), /client_email/);
 });
+
+test('images of removed or hidden memes are not served', async () => {
+  const e = env();
+  const drive = fakeDrive([
+    { id: 'a', name: 'a.png', mimeType: 'image/png' },
+    { id: 'b', name: 'b.png', mimeType: 'image/png' }
+  ]);
+  await runIngest(e, { drive, caption: fakeCaption });
+  const keyOf = (id) => e.DB.raw.prepare('SELECT image_key FROM xm_post WHERE drive_file_id = ?').get(id).image_key;
+  const deps = { verifySession: fakeVerify };
+  const get = (key) => handleSite(request(`/i/${key}`), e, deps);
+
+  const live = await get(keyOf('a'));
+  assert.equal(live.status, 200);
+  assert.equal(live.headers.get('cache-control'), 'public, max-age=86400');
+
+  // Removed from Drive: the image address stops working.
+  drive.files = drive.files.slice(1);
+  await runIngest(e, { drive, caption: fakeCaption });
+  assert.equal((await get(keyOf('a'))).status, 404);
+  assert.ok(e.MEDIA.objects.has(keyOf('a')), 'the file is kept so a restore brings it back');
+
+  // Hidden by an admin: same.
+  e.DB.raw.prepare("UPDATE xm_post SET status = 'hidden' WHERE drive_file_id = 'b'").run();
+  assert.equal((await get(keyOf('b'))).status, 404);
+
+  // Restored to Drive: served again.
+  drive.files = [{ id: 'a', name: 'a.png', mimeType: 'image/png' }, { id: 'b', name: 'b.png', mimeType: 'image/png' }];
+  await runIngest(e, { drive, caption: fakeCaption });
+  assert.equal((await get(keyOf('a'))).status, 200);
+
+  // Thumbnails follow their post; unknown keys are 404.
+  e.DB.raw.prepare("UPDATE xm_post SET thumb_key = 'thumbs/a.webp' WHERE drive_file_id = 'a'").run();
+  await e.MEDIA.put('thumbs/a.webp', new Uint8Array([1]), { httpMetadata: { contentType: 'image/webp' } });
+  assert.equal((await get('thumbs/a.webp')).status, 200);
+  e.DB.raw.prepare("UPDATE xm_post SET status = 'hidden' WHERE drive_file_id = 'a'").run();
+  assert.equal((await get('thumbs/a.webp')).status, 404);
+  assert.equal((await get('nothing-here.png')).status, 404);
+});

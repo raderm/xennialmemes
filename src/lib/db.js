@@ -75,6 +75,15 @@ export async function allSlugs(db) {
   return results;
 }
 
+/** True when `key` is the image or thumbnail of a published post. */
+export async function imageIsPublished(db, key) {
+  const row = await db
+    .prepare("SELECT 1 AS x FROM xm_post WHERE status = 'published' AND (image_key = ? OR thumb_key = ?) LIMIT 1")
+    .bind(key, key)
+    .first();
+  return !!row;
+}
+
 export async function slugExists(db, slug) {
   return !!(await db.prepare('SELECT 1 AS x FROM xm_post WHERE slug = ?').bind(slug).first());
 }
