@@ -8,3 +8,4 @@ engine9.plugins.js
 engine9.db
 *.log
 .DS_Store
+public/assets/vendor/
