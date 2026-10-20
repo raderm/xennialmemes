@@ -387,3 +387,24 @@ test('ingest keeps an SEO-friendly Drive name and only suffixes on collision', a
   ]);
   assert.ok(e.MEDIA.objects.has('tamagotchi-funeral-meme.png'));
 });
+
+test('parseServiceAccount forgives common paste slips and explains real problems', () => {
+  const key = { client_email: 'bot@x.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nAAA\n-----END PRIVATE KEY-----\n' };
+  const json = JSON.stringify(key);
+  const b64 = Buffer.from(json).toString('base64');
+  for (const raw of [
+    json,
+    b64,
+    `GOOGLE_SERVICE_ACCOUNT_JSON=${b64}`,
+    `"${b64}"`,
+    `'${b64}'\n`,
+    b64.match(/.{1,76}/g).join('\n'),
+    Buffer.from(json).toString('base64url')
+  ]) {
+    assert.equal(parseServiceAccount(raw).client_email, key.client_email);
+  }
+  assert.throws(() => parseServiceAccount(''), /empty/);
+  assert.throws(() => parseServiceAccount('cat: /home/x/xm-drive-key.b64: No such file'), /neither the key's JSON nor its base64/);
+  assert.throws(() => parseServiceAccount(b64.slice(0, 101)), /cut off/);
+  assert.throws(() => parseServiceAccount(Buffer.from('{"a":1}').toString('base64')), /client_email/);
+});

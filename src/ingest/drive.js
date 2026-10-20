@@ -12,14 +12,43 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DRIVE_URL = 'https://www.googleapis.com/drive/v3';
 const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 
+const KEY_HELP =
+  'Set it again from the key file: base64 -w0 ~/keys/xm-drive.json | npx wrangler secret put GOOGLE_SERVICE_ACCOUNT_JSON';
+
+/**
+ * Read the service-account key from the secret. Accepts the JSON itself or
+ * its base64, and forgives the usual paste slips: a leading
+ * "GOOGLE_SERVICE_ACCOUNT_JSON=", surrounding quotes, line breaks, and
+ * base64url characters.
+ */
 export function parseServiceAccount(raw) {
-  if (!raw) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is not set');
-  let text = String(raw).trim();
-  // Accept the key base64-encoded too, which is easier to keep on one line in .env.
-  if (!text.startsWith('{')) text = atob(text);
-  const account = JSON.parse(text);
+  if (!raw || !String(raw).trim()) throw new Error(`GOOGLE_SERVICE_ACCOUNT_JSON is empty. ${KEY_HELP}`);
+  let text = String(raw)
+    .trim()
+    .replace(/^GOOGLE_SERVICE_ACCOUNT_JSON\s*=\s*/, '')
+    .replace(/^(['"])([\s\S]*)\1$/, '$2')
+    .trim();
+  if (!text.startsWith('{')) {
+    const b64 = text.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) {
+      throw new Error(
+        `GOOGLE_SERVICE_ACCOUNT_JSON is neither the key's JSON nor its base64 (it starts "${text.slice(0, 12)}…"). ${KEY_HELP}`
+      );
+    }
+    try {
+      text = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+    } catch {
+      throw new Error(`GOOGLE_SERVICE_ACCOUNT_JSON is not valid base64; it may be cut off. ${KEY_HELP}`);
+    }
+  }
+  let account;
+  try {
+    account = JSON.parse(text);
+  } catch {
+    throw new Error(`GOOGLE_SERVICE_ACCOUNT_JSON does not decode to the key's JSON; it may be cut off. ${KEY_HELP}`);
+  }
   if (!account.client_email || !account.private_key) {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON needs client_email and private_key');
+    throw new Error(`GOOGLE_SERVICE_ACCOUNT_JSON needs client_email and private_key; is it the service account's JSON key? ${KEY_HELP}`);
   }
   return account;
 }
