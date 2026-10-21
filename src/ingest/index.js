@@ -18,11 +18,13 @@ import {
   ingestErrors,
   insertPost,
   knownDriveIds,
+  getState,
   recordIngestError,
+  setState,
   slugExists,
   syncDriveRemovals
 } from '../lib/db.js';
-import { addTags, aliasMap, createMatcher, resolveTags, vocabulary } from '../lib/tags.js';
+import { addTags, aliasMap, createMatcher, invalidateTagCounts, resolveTags, vocabulary } from '../lib/tags.js';
 
 const MAX_ATTEMPTS = 3;
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024; // Images binding input limit
@@ -78,8 +80,15 @@ async function resize(images, bytes, width, format) {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+/** A short fingerprint of which files are in the folder. */
+export async function listingFingerprint(files) {
+  const ids = files.map((f) => f.id).sort().join('\n');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ids));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /**
- * @returns {Promise<{ listed: number, created: Array<{slug: string, title: string}>, failed: Array<{name: string, error: string}>, removed: number, pending: number }>}
+ * @returns {Promise<{ listed: number, created: Array<{slug: string, title: string}>, failed: Array<{name: string, error: string}>, removed: number, pending: number, unchanged?: boolean }>}
  */
 export async function runIngest(env, { limit, drive: driveOverride, caption = captionImage, log = console } = {}) {
   const db = env.DB;
@@ -91,6 +100,15 @@ export async function runIngest(env, { limit, drive: driveOverride, caption = ca
     createDriveClient({ accessToken: await getAccessToken(parseServiceAccount(env.GOOGLE_SERVICE_ACCOUNT_JSON)) });
 
   const files = await drive.listImages(env.DRIVE_FOLDER_ID);
+
+  // Listing Drive costs nothing against the database; reading every post to
+  // compare does. When the folder holds exactly the files it held after the
+  // last clean run, there is nothing to do, so stop after one row read.
+  const fingerprint = await listingFingerprint(files);
+  if ((await getState(db, 'drive_fp')) === fingerprint) {
+    return { listed: files.length, created: [], failed: [], removed: 0, pending: 0, unchanged: true };
+  }
+
   // Only trust an empty listing if the folder really is empty: a sharing
   // mistake should not take the whole site down.
   const removed = files.length ? await syncDriveRemovals(db, files.map((f) => f.id)) : 0;
@@ -118,7 +136,12 @@ export async function runIngest(env, { limit, drive: driveOverride, caption = ca
       failed.push({ name: file.name, error: message });
     }
   }
-  return { listed: files.length, created, failed, removed, pending: fresh.length - batch.length };
+  const pending = fresh.length - batch.length;
+  if (created.length || removed) await invalidateTagCounts(db);
+  // Remember this listing only when nothing is left to do, so files still
+  // waiting or being retried keep the next runs going.
+  if (!pending && !failed.length) await setState(db, 'drive_fp', fingerprint);
+  return { listed: files.length, created, failed, removed, pending };
 }
 
 async function ingestOne(env, drive, file, caption, tagging) {

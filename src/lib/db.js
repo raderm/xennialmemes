@@ -75,13 +75,60 @@ export async function allSlugs(db) {
   return results;
 }
 
-/** True when `key` is the image or thumbnail of a published post. */
+/**
+ * True when `key` is the image or thumbnail of a published post. Written as
+ * two lookups so each uses its own index (one OR query made SQLite scan
+ * every published post, on every image request).
+ */
 export async function imageIsPublished(db, key) {
   const row = await db
-    .prepare("SELECT 1 AS x FROM xm_post WHERE status = 'published' AND (image_key = ? OR thumb_key = ?) LIMIT 1")
+    .prepare(
+      `SELECT 1 AS x FROM xm_post WHERE image_key = ? AND status = 'published'
+       UNION ALL
+       SELECT 1 FROM xm_post WHERE thumb_key = ? AND status = 'published'
+       LIMIT 1`
+    )
     .bind(key, key)
     .first();
   return !!row;
+}
+
+/* ---- cached values (xm_state) ------------------------------------------ */
+// A cache, so it never breaks a page: if xm_state is missing (code deployed
+// before `npm run db:migrate:remote`) these read nothing and write nothing.
+
+const missingTable = (err) => /no such table/i.test(String(err?.message || err));
+
+export async function getState(db, key) {
+  try {
+    const row = await db.prepare('SELECT value FROM xm_state WHERE key = ?').bind(key).first();
+    return row ? row.value : null;
+  } catch (err) {
+    if (missingTable(err)) return null;
+    throw err;
+  }
+}
+
+export async function setState(db, key, value) {
+  try {
+    await db
+      .prepare(
+        `INSERT INTO xm_state (key, value) VALUES (?, ?)
+         ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
+      )
+      .bind(key, value)
+      .run();
+  } catch (err) {
+    if (!missingTable(err)) throw err;
+  }
+}
+
+export async function clearState(db, key) {
+  try {
+    await db.prepare('DELETE FROM xm_state WHERE key = ?').bind(key).run();
+  } catch (err) {
+    if (!missingTable(err)) throw err;
+  }
 }
 
 export async function slugExists(db, slug) {
@@ -162,6 +209,7 @@ export async function syncDriveRemovals(db, presentIds) {
 
 export async function setPostStatus(db, id, status) {
   await db.prepare('UPDATE xm_post SET status = ? WHERE id = ?').bind(status, Number(id)).run();
+  await clearState(db, 'tags_used');
 }
 
 /* ---- members ------------------------------------------------------------ */

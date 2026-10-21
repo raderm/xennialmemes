@@ -12,7 +12,7 @@
  *      has at least TAG_DESCRIBE_MIN posts and no description yet.
  */
 import { callTool, DEFAULT_MODEL } from './claude.js';
-import { CATEGORIES, CATEGORY_IDS, mergeTag, updateTag, vocabulary } from '../lib/tags.js';
+import { CATEGORIES, CATEGORY_IDS, invalidateTagCounts, mergeTag, updateTag, vocabulary } from '../lib/tags.js';
 
 const MAX_MERGES = 25;
 const DESCRIBE_BATCH = 25;
@@ -181,5 +181,6 @@ export async function runTagUpkeep(env, { call = callTool, log = console } = {})
     }
   }
 
+  await invalidateTagCounts(db);
   return summary;
 }

@@ -194,5 +194,6 @@ Edits to a post's title or alt text are SQL updates for now:
 - **Accounts.** Members are engine9 `person` rows. A member picks a public handle
   before their first comment; emails are never shown. Sessions are verified with
   `SESSION_SECRET`, which `e9core setup` creates.
+- **Database reads (D1 "rows read").** The Free plan allows 5 million a day. The 10-minute Drive check reads one row when the folder hasn't changed, tag counts are cached in `xm_state` and rebuilt only after posts or tags change, and image and related-meme lookups go through indexes (`test/reads.test.js` checks their query plans). A page view costs on the order of a hundred rows, not thousands.
 - **Tests.** `npm test` runs the ingest, pages and member API against an
   in-memory SQLite database with Drive, Claude and R2 stubbed out.

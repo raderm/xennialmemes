@@ -6,6 +6,7 @@
  * and a description; xm_tag_alias maps retired slugs to the tag they became.
  */
 import { normalizeTag, parseTags } from './util.js';
+import { clearState, getState, setState } from './db.js';
 
 /** Fixed categories, in the order the topics page shows them. */
 export const CATEGORIES = [
@@ -145,16 +146,38 @@ export async function addTags(db, tags) {
   );
 }
 
-/** Tags with at least one published post, for the masthead bar and topics page. */
+/** Forget the cached tag counts; the next page view rebuilds them. */
+export function invalidateTagCounts(db) {
+  return clearState(db, 'tags_used');
+}
+
+/**
+ * Tags with at least one published post, most used first, for the topic
+ * row, the Topics page and the sitemap. Counting touches every tag link, so
+ * the result is kept in xm_state and rebuilt only after posts or tags change:
+ * a page view then reads one row instead of thousands.
+ */
 export async function usedTags(db, { limit = 500 } = {}) {
-  const { results } = await db
-    .prepare(
-      `SELECT * FROM (SELECT t.tag, t.label, t.category, ${PUBLISHED_COUNT} AS n FROM xm_tag t)
-        WHERE n > 0 ORDER BY n DESC, tag LIMIT ?`
-    )
-    .bind(limit)
-    .all();
-  return results;
+  const cached = await getState(db, 'tags_used');
+  let all = null;
+  if (cached) {
+    try {
+      all = JSON.parse(cached);
+    } catch {
+      all = null;
+    }
+  }
+  if (!all) {
+    const { results } = await db
+      .prepare(
+        `SELECT * FROM (SELECT t.tag, t.label, t.category, ${PUBLISHED_COUNT} AS n FROM xm_tag t)
+          WHERE n > 0 ORDER BY n DESC, tag`
+      )
+      .all();
+    all = results.map((r) => ({ tag: r.tag, label: r.label, category: r.category, n: r.n }));
+    await setState(db, 'tags_used', JSON.stringify(all));
+  }
+  return all.slice(0, limit);
 }
 
 export async function getTag(db, slug) {
@@ -199,6 +222,9 @@ export async function relatedTags(db, tag, limit = 8) {
  * more, so two memes about the same show outrank two that are merely "90s".
  */
 export async function relatedPosts(db, postId, limit = 6) {
+  // CROSS JOIN fixes the join order: start from this post's tags, then their
+  // posts, then each post by id. Left to itself SQLite walked every
+  // published post first.
   const { results } = await db
     .prepare(
       `WITH mine AS (SELECT tag FROM xm_post_tag WHERE post_id = ?),
@@ -206,9 +232,9 @@ export async function relatedPosts(db, postId, limit = 6) {
               SELECT pt.tag, 1.0 / COUNT(*) AS w FROM xm_post_tag pt
                WHERE pt.tag IN (SELECT tag FROM mine) GROUP BY pt.tag)
        SELECT p.id, p.slug, p.title, p.alt_text, p.image_key, p.thumb_key, p.width, p.height, SUM(weight.w) AS score
-         FROM xm_post_tag pt
-         JOIN weight ON weight.tag = pt.tag
-         JOIN xm_post p ON p.id = pt.post_id
+         FROM weight
+         CROSS JOIN xm_post_tag pt ON pt.tag = weight.tag
+         CROSS JOIN xm_post p ON p.id = pt.post_id
         WHERE pt.post_id <> ? AND p.status = 'published'
         GROUP BY p.id ORDER BY score DESC, p.id DESC LIMIT ?`
     )
@@ -235,6 +261,7 @@ export async function updateTag(db, tag, { label, category, description, reviewe
   if (reviewed) sets.push("reviewed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
   if (!sets.length) return;
   await db.prepare(`UPDATE xm_tag SET ${sets.join(', ')} WHERE tag = ?`).bind(...args, tag).run();
+  if (label || category) await invalidateTagCounts(db);
 }
 
 /**
@@ -267,5 +294,6 @@ export async function mergeTag(db, from, to, reason = 'auto-merge') {
     }
   }
   await db.batch(statements);
+  await invalidateTagCounts(db);
   return postIds.length;
 }

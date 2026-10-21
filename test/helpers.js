@@ -26,7 +26,7 @@ class Statement {
 export function createD1() {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON');
-  for (const file of ['0001_site.sql', '0002_tags.sql', '0003_image_lookup.sql']) {
+  for (const file of ['0001_site.sql', '0002_tags.sql', '0003_image_lookup.sql', '0004_state.sql']) {
     db.exec(readFileSync(new URL(`../migrations-site/${file}`, import.meta.url), 'utf8'));
   }
   return {
